@@ -1,13 +1,7 @@
 name: Docker Deployment
 
 on:
-  # release:
-  #   types: [published]
-  push:
-    tags:
-      - docker*
   workflow_dispatch:
-
 permissions:
   contents: read
 

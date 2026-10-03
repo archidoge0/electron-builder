@@ -1,22 +1,7 @@
 name: Test
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
-    inputs:
-      rebuild-docker-images:
-        description: "Rebuild all Docker images"
-        default: false
-        type: "boolean"
-  workflow_call: # Allow this workflow to be called from other workflows
-    inputs:
-      rebuild-docker-images-call:
-        description: "Rebuild all Docker images"
-        required: true
-        type: boolean
-
+  workflow_dispatch:
 permissions:
   contents: read
 

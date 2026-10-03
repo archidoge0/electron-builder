@@ -1,2 +1,5 @@
 *.d.ts
 out
+# ghav harness files
+.github/workflows/ghav-*.yml
+.github/actions/pretest/action.y*ml
