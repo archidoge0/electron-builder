@@ -50,6 +50,7 @@ runs:
       shell: bash
 
     - name: Restore Vitest Smart Cache
+      if: false # ghav: disabled in every arm; it downloads upstream's latest master cache, so plans would drift; plans use the default weights
       run: pnpm ci:test:fetch-cache
       shell: bash
       env:
