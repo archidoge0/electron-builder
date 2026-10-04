@@ -41,6 +41,7 @@ runs:
 
     - name: Restore Vitest Smart Cache
       id: cache-restore
+      if: false # ghav: disabled in every arm; no smart cache is committed, so plans use the default weights
       uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
       with:
         path: ${{ github.workspace }}/test/vitest-scripts/_vitest-smart-cache.json
