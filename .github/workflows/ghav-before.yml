@@ -1,0 +1,116 @@
+name: "ghav before: Test"
+"on":
+  push:
+    branches:
+      - ghav/dev/9565
+    paths:
+      - .ghav/before
+permissions:
+  contents: read
+env:
+  TEST_IMAGE_NODE_MAJOR_VERSION: 22
+jobs:
+  test-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        testFiles:
+          - ArtifactPublisherTest,BuildTest,ExtraBuildTest,RepoSlugTest,binDownloadTest,configurationValidationTest,filenameUtilTest,filesTest,globTest,httpExecutorTest,ignoreTest,macroExpanderTest,mainEntryTest,urlUtilTest,extraMetadataTest,linuxArchiveTest,linuxPackagerTest,HoistedNodeModuleTest,MemoLazyTest,HoistTest,ExtraBuildResourcesTest,utilTest
+          - snapTest,debTest,fpmTest,protonTest,rebuilderTest
+          - winPackagerTest,winCodeSignTest,webInstallerTest
+          - oneClickInstallerTest,assistedInstallerTest,packageManagerTest
+          - concurrentBuildsTest
+    steps:
+      - name: Checkout code repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 2
+      - name: Cleanup runner
+        uses: ./.github/actions/cleanup-runner
+      - name: Setup Tests
+        uses: ./.github/actions/pretest
+        with:
+          cache-path: ~/.cache/electron
+          cache-key: v-35.7.5-linux-electron
+      - name: Run tests in docker image
+        run: |
+          echo $TEST_RUNNER_IMAGE_TAG
+          pnpm test-linux
+        env:
+          CSC_KEY_PASSWORD: ${{ '' }}
+          TEST_FILES: ${{ matrix.testFiles }}
+          FORCE_COLOR: 1
+          TEST_RUNNER_IMAGE_TAG: electronuserland/builder:${{ env.TEST_IMAGE_NODE_MAJOR_VERSION }}-wine-mono
+  test-updater:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Cleanup runner
+        uses: ./.github/actions/cleanup-runner
+      - name: Setup Tests
+        uses: ./.github/actions/pretest
+        with:
+          cache-path: ~/.cache/electron
+          cache-key: v-35.7.5-update-electron
+      - name: Test
+        run: |
+          echo $TEST_RUNNER_IMAGE_TAG
+          pnpm test-linux
+        env:
+          TEST_FILES: nsisUpdaterTest,PublishManagerTest,differentialUpdateTest,GitlabPublisherTest,GitlabPublisher.integration.test
+          KEYGEN_TOKEN: ${{ '' }}
+          BITBUCKET_TOKEN: ${{ '' }}
+          GH_TOKEN: ${{ '' }}
+          GITLAB_TOKEN: ${{ '' }}
+          FORCE_COLOR: 1
+          TEST_RUNNER_IMAGE_TAG: electronuserland/builder:${{ env.TEST_IMAGE_NODE_MAJOR_VERSION }}-wine-mono
+  test-e2e:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        test_config:
+          - file: dockerfile-rpm
+            env:
+              PACKAGE_MANAGER_TO_TEST: dnf
+          - file: dockerfile-rpm
+            env:
+              PACKAGE_MANAGER_TO_TEST: zypper
+          - file: dockerfile-rpm
+            env:
+              PACKAGE_MANAGER_TO_TEST: yum
+          - file: dockerfile-rpm
+            env:
+              PACKAGE_MANAGER_TO_TEST: rpm
+          - file: dockerfile-debian
+            env:
+              PACKAGE_MANAGER_TO_TEST: apt
+          - file: dockerfile-debian
+            env:
+              PACKAGE_MANAGER_TO_TEST: dpkg
+          - file: dockerfile-appimage
+            env:
+              RUN_APP_IMAGE_TEST: true
+    steps:
+      - name: Checkout code repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Setup Tests
+        uses: ./.github/actions/pretest
+        with:
+          cache-path: ~/.cache/electron
+          cache-key: v-35.7.5-update-electron
+      - name: Verify Docs Generation
+        run: pnpm generate-all
+      - name: e2e Linux Updater tests (install, auto-update, uninstall)
+        run: |
+          docker build --platform=linux/amd64 -t ${{ matrix.test_config.file }} -f ./test/src/updater/${{ matrix.test_config.file }} .
+          TEST_RUNNER_IMAGE_TAG=${{ matrix.test_config.file }} pnpm test-linux
+        env:
+          TEST_FILES: blackboxUpdateTest,linuxUpdaterTest
+          DEBUG: electron-updater,electron-builder
+          ADDITIONAL_DOCKER_ARGS: -e PACKAGE_MANAGER_TO_TEST=${{ matrix.test_config.env.PACKAGE_MANAGER_TO_TEST }} -e RUN_APP_IMAGE_TEST=${{ matrix.test_config.env.RUN_APP_IMAGE_TEST || false }}
