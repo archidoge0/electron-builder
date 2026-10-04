@@ -1,0 +1,146 @@
+name: "ghav before: Test"
+"on":
+  push:
+    branches:
+      - ghav/dev/9901
+    paths:
+      - .ghav/before
+permissions:
+  contents: read
+env:
+  TEST_IMAGE_NODE_MAJOR_VERSION: 22
+jobs:
+  validate-and-shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      linux: "[0,1,2,3,4,5,6,7,8,9,10,11,12,13]"
+      windows: ${{ steps.plan.outputs.windows }}
+      macos: ${{ steps.plan.outputs.macos }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Setup Tests
+        uses: ./.github/actions/pretest
+        with:
+          cache-key: v-39.8.5-linux-electron
+          cache-path: ~/.cache/electron
+          reset-vitest-smart-cache: ${{ '' }}
+      - name: Validate files
+        run: pnpm ci:validate
+      - name: Lint files
+        run: pnpm lint
+      - name: Output shard plan
+        run: pnpm ci:test:count
+      - id: plan
+        run: |
+          # Get shard counts for all platforms as JSON
+          SHARD_JSON=$(pnpm --silent ci:test:count | tail -n1)
+
+          # Extract individual platform arrays
+          LINUX_SHARDS=$(echo "$SHARD_JSON" | jq -c '.linux')
+          WINDOWS_SHARDS=$(echo "$SHARD_JSON" | jq -c '.win32')
+          MACOS_SHARDS=$(echo "$SHARD_JSON" | jq -c '.darwin')
+
+          # Set outputs
+          echo "linux=$LINUX_SHARDS" >> $GITHUB_OUTPUT
+          echo "windows=$WINDOWS_SHARDS" >> $GITHUB_OUTPUT
+          echo "macos=$MACOS_SHARDS" >> $GITHUB_OUTPUT
+
+          # Debug output
+          echo "Planned shards:"
+          echo "  Linux: $LINUX_SHARDS"
+          echo "  Windows: $WINDOWS_SHARDS"
+          echo "  macOS: $MACOS_SHARDS"
+  test-linux:
+    name: Test Linux (Shard ${{ matrix.shard }})
+    needs:
+      - validate-and-shard
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson('[0,1,2,3,4,5,6,7,8,9,10,11,12,13]') }}
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+            cache-path: ~/.cache/electron
+            cache-key: v-39.8.5-linux-electron
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 2
+      - name: Cleanup runner
+        uses: ./.github/actions/cleanup-runner
+      - name: Setup Tests
+        uses: ./.github/actions/pretest
+        with:
+          cache-path: ${{ matrix.cache-path }}
+          cache-key: ${{ matrix.cache-key }}
+          reset-vitest-smart-cache: ${{ '' }}
+      - name: Write Docker secrets env file
+        run: |
+          printf 'CSC_KEY_PASSWORD=%s\n' "$CSC_KEY_PASSWORD_SECRET" > "${{ runner.temp }}/docker-ghav-blank.env"
+          chmod 600 "${{ runner.temp }}/docker-ghav-blank.env"
+        env:
+          CSC_KEY_PASSWORD_SECRET: ${{ '' }}
+      - name: Run shard in docker
+        run: |
+          echo $TEST_RUNNER_IMAGE_TAG
+          pnpm test:linux
+        env:
+          ADDITIONAL_DOCKER_ARGS: --env-file ${{ runner.temp }}/docker-ghav-blank.env -e VITEST_SHARD_INDEX=${{ matrix.shard }} -e VITEST_SMART_CACHE_FILE=./test/vitest-scripts/vitest-config/_vitest-smart-cache.json -e RESET_VITEST_SHARD_CACHE=${{ '' }}
+          TEST_RUNNER_IMAGE_TAG: electronuserland/builder:${{ env.TEST_IMAGE_NODE_MAJOR_VERSION }}-wine-mono
+      - name: Upload smart cache artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: vitest-smart-cache-${{ matrix.platform }}-${{ matrix.shard }}
+          path: ${{ github.workspace }}/test/vitest-scripts/vitest-config/_vitest-smart-cache.json
+          retention-days: 1
+          if-no-files-found: error
+  test-updater:
+    name: Test Updater
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Cleanup runner
+        uses: ./.github/actions/cleanup-runner
+      - name: Setup Tests
+        uses: ./.github/actions/pretest
+        with:
+          cache-path: ~/.cache/electron
+          cache-key: v-39.8.5-update-electron
+          reset-vitest-smart-cache: ${{ '' }}
+      - name: Verify Docs Generation
+        run: pnpm generate:all
+      - name: Verify Site Generation
+        run: pnpm docs:all
+      - name: Write Docker secrets env file
+        run: |
+          printf 'KEYGEN_TOKEN=%s\nBITBUCKET_TOKEN=%s\nGH_TOKEN=%s\nGITLAB_TOKEN=%s\n' \
+            "$KEYGEN_TOKEN_SECRET" "$BITBUCKET_TOKEN_SECRET" "$GH_TOKEN_SECRET" "$GITLAB_TOKEN_SECRET" \
+            > "${{ runner.temp }}/docker-ghav-blank.env"
+          chmod 600 "${{ runner.temp }}/docker-ghav-blank.env"
+        env:
+          KEYGEN_TOKEN_SECRET: ${{ '' }}
+          BITBUCKET_TOKEN_SECRET: ${{ '' }}
+          GH_TOKEN_SECRET: ${{ '' }}
+          GITLAB_TOKEN_SECRET: ${{ '' }}
+      - name: Test
+        run: |
+          echo $TEST_RUNNER_IMAGE_TAG
+          pnpm test:linux
+        env:
+          TEST_FILES: nsisUpdaterTest,PublishManagerTest,differentialUpdateTest,GitlabPublisherTest,GitlabPublisher.integration.test
+          TEST_RUNNER_IMAGE_TAG: electronuserland/builder:${{ env.TEST_IMAGE_NODE_MAJOR_VERSION }}-wine-mono
+          ADDITIONAL_DOCKER_ARGS: --env-file ${{ runner.temp }}/docker-ghav-blank.env -e VITEST_SMART_CACHE_FILE=./test/vitest-scripts/vitest-config/_vitest-smart-cache.json -e RESET_VITEST_SHARD_CACHE=${{ '' }}
+      - name: Upload smart cache artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: vitest-smart-cache-updater
+          path: ${{ github.workspace }}/test/vitest-scripts/vitest-config/_vitest-smart-cache.json
+          retention-days: 1
+          if-no-files-found: error
